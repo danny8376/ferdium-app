@@ -7,7 +7,7 @@ import {
   disable as disableDarkMode,
   enable as enableDarkMode,
 } from 'darkreader';
-import { contextBridge, ipcRenderer } from 'electron';
+import { contextBridge, ipcRenderer, webFrame } from 'electron';
 import { pathExistsSync, readFileSync } from 'fs-extra';
 import { debounce, noop } from 'lodash';
 import { autorun, computed, makeObservable, observable } from 'mobx';
@@ -44,6 +44,11 @@ import { DEFAULT_APP_SETTINGS } from '../config';
 import { cleanseJSObject, ifUndefined, safeParseInt } from '../jsUtils';
 import type Service from '../models/Service';
 
+import {
+  getDevRecipeDirectory,
+  getRecipeDirectory,
+} from '../helpers/recipe-helpers';
+
 // For some services darkreader tries to use the chrome extension message API
 // This will cause the service to fail loading
 // As the message API is not actually needed, we'll add this shim sendMessage
@@ -60,6 +65,65 @@ const dialogTitleHandler = new DialogTitleHandler();
 const sessionHandler = new SessionHandler();
 
 const notificationsHandler = new NotificationsHandler();
+
+// Extract recipe name and real url
+const recipeRealUrlPrefix = 'text/plain,recipe-with-real-url,';
+if (window.location.pathname.startsWith(recipeRealUrlPrefix)) {
+  const recipeRealUrl = window.location.pathname.slice(
+    recipeRealUrlPrefix.length,
+  );
+  const pathExtractionIndex = recipeRealUrl.indexOf(',');
+  const recipeId = recipeRealUrl.slice(0, pathExtractionIndex);
+  const url = recipeRealUrl.slice(pathExtractionIndex + 1);
+
+  const hashIndex = url.lastIndexOf('#');
+  if (hashIndex === -1) {
+    window.location.replace(`${url}#ferdium-recipe=${recipeId}`);
+  } else {
+    const urlBase = url.slice(0, hashIndex);
+    const hash = url.slice(hashIndex + 1);
+    window.location.replace(`${urlBase}#${hash}&ferdium-recipe=${recipeId}`);
+  }
+}
+
+const recipeIdHashPrefix = 'ferdium-recipe=';
+const recipeIdIndex = window.location.hash.lastIndexOf(recipeIdHashPrefix);
+if (recipeIdIndex !== -1) {
+  const realHash = window.location.hash.slice(0, recipeIdIndex - 1) || '#';
+  const recipeId = window.location.hash.slice(
+    recipeIdIndex + recipeIdHashPrefix.length,
+  );
+  window.history.replaceState('', '', realHash);
+
+  const normalDirectory = getRecipeDirectory(recipeId);
+  const devDirectory = getDevRecipeDirectory(recipeId);
+  let directory: string | undefined;
+  if (pathExistsSync(normalDirectory)) {
+    directory = normalDirectory;
+  } else if (pathExistsSync(devDirectory)) {
+    directory = devDirectory;
+  }
+  if (directory) {
+    const filePath = join(directory, 'preload.user.js');
+    if (pathExistsSync(filePath)) {
+      const jsModule = require(filePath);
+      if (typeof jsModule === 'function') {
+        const ipcSendToHost = (cmd: string, ...args: any[]) => {
+          ipcRenderer.sendToHost(cmd, ...args);
+        };
+        ipcSendToHost(
+          'inject-js-unsafe',
+          'console.log("test: ipcSendToHost 1")',
+        );
+        jsModule(contextBridge, ipcRenderer, webFrame, directory);
+        ipcSendToHost(
+          'inject-js-unsafe',
+          'console.log("test: ipcSendToHost 2")',
+        );
+      }
+    }
+  }
+}
 
 // Patching window.open
 const originalWindowOpen = window.open;

@@ -1041,7 +1041,9 @@ export default class ServicesStore extends TypedStore {
 
     if (!service.webview) return;
     // eslint-disable-next-line consistent-return
-    return service.webview.loadURL(service.url);
+    return service.webview.loadURL(
+      `data:text/plain,recipe-with-real-url,${service.recipe.id},${service.url}`,
+    ); // Very hacky way for passing recipe id...
   }
 
   @action _reloadActive() {

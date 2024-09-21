@@ -105,7 +105,7 @@ class ServiceWebview extends Component<IProps> {
           }
         }}
         autosize
-        src={service.url}
+        src={`data:text/plain,recipe-with-real-url,${service.recipe.id},${service.url}`} // Very hacky way for passing recipe id...
         preload={preloadScript}
         partition={service.partition}
         onDidAttach={() => {
